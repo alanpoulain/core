@@ -739,6 +739,7 @@ class ApiPlatformExtensionTest extends TestCase
             'api_platform.identifiers_extractor',
             'api_platform.identifiers_extractor.cached',
             'api_platform.item_data_provider',
+            'api_platform.dispatcher.internal_events',
             'api_platform.listener.exception',
             'api_platform.listener.exception.validation',
             'api_platform.listener.request.add_format',
