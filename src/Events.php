@@ -40,4 +40,8 @@ final class Events
     public const PRE_SERIALIZE = 'api_platform.pre_serialize';
     public const SERIALIZE = 'api_platform.serialize';
     public const POST_SERIALIZE = 'api_platform.post_serialize';
+
+    public const PRE_RESPOND = 'api_platform.pre_respond';
+    public const RESPOND = 'api_platform.respond';
+    public const POST_RESPOND = 'api_platform.post_respond';
 }

@@ -11,8 +11,9 @@
 
 declare(strict_types=1);
 
-namespace ApiPlatform\Core\Bridge\Symfony\Bundle\EventSubscriber;
+namespace ApiPlatform\Core\Tests\Bridge\Symfony\Bundle\EventSubscriber;
 
+use ApiPlatform\Core\Bridge\Symfony\Bundle\EventSubscriber\EventDispatcher;
 use ApiPlatform\Core\Event\DeserializeEvent;
 use ApiPlatform\Core\Event\FormatAddEvent;
 use ApiPlatform\Core\Event\PostDeserializeEvent;
@@ -34,19 +35,15 @@ use ApiPlatform\Core\Event\SerializeEvent;
 use ApiPlatform\Core\Event\ValidateEvent;
 use ApiPlatform\Core\Event\WriteEvent;
 use ApiPlatform\Core\Events;
-use Symfony\Component\EventDispatcher\Event;
+use PHPUnit\Framework\TestCase;
 use Symfony\Component\EventDispatcher\EventDispatcherInterface;
-use Symfony\Component\EventDispatcher\EventSubscriberInterface;
+use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpKernel\Event\GetResponseEvent;
 use Symfony\Component\HttpKernel\Event\GetResponseForControllerResultEvent;
+use Symfony\Component\HttpKernel\HttpKernelInterface;
 use Symfony\Component\HttpKernel\KernelEvents;
 
-/**
- * @internal
- *
- * @author Alan Poulain <contact@alanpoulain.eu>
- */
-final class EventDispatcher implements EventSubscriberInterface
+class EventDispatcherTest extends TestCase
 {
     private const INTERNAL_EVENTS_CONFIGURATION = [
         KernelEvents::REQUEST => [
@@ -80,40 +77,49 @@ final class EventDispatcher implements EventSubscriberInterface
         ]
     ];
 
-    private $dispatcher;
-
-    public function __construct(EventDispatcherInterface $dispatcher)
+    public function testGetSubscribedEvents(): void
     {
-        $this->dispatcher = $dispatcher;
+        $this->assertEquals(
+            ['kernel.request' => 'dispatch', 'kernel.view' => 'dispatch'],
+            EventDispatcher::getSubscribedEvents()
+        );
     }
 
-    public static function getSubscribedEvents(): array
+    public function testDispatchWithRequestKernelEvent()
     {
-        return [
-            KernelEvents::REQUEST => 'dispatch',
-            KernelEvents::VIEW => 'dispatch'
-        ];
+        $kernel = $this->prophesize(HttpKernelInterface::class);
+        $request = $this->prophesize(Request::class);
+
+        $event = new GetResponseEvent($kernel->reveal(), $request->reveal(), HttpKernelInterface::MASTER_REQUEST);
+
+        /** @var EventDispatcherInterface $symfonyEventDispatcher */
+        $symfonyEventDispatcher = $this->prophesize(EventDispatcherInterface::class);
+
+        foreach (self::INTERNAL_EVENTS_CONFIGURATION['kernel.request'] as $internalEventClass => $internalEventName) {
+            $internalEvent = new $internalEventClass(null, ['request' => $event->getRequest()]);
+            $symfonyEventDispatcher->dispatch($internalEventName, $internalEvent)->shouldBeCalledOnce();
+        }
+
+        $eventDispatcher = new EventDispatcher($symfonyEventDispatcher->reveal());
+        $eventDispatcher->dispatch($event, 'kernel.request');
     }
 
-    public function dispatch(Event $event, string $eventName): void
+    public function testDispatchWithViewKernelEvent()
     {
-        $internalEventData = null;
-        $internalEventContext = [];
+        $kernel = $this->prophesize(HttpKernelInterface::class);
+        $request = $this->prophesize(Request::class);
 
-        switch (true) {
-            case $event instanceof GetResponseForControllerResultEvent:
-                $internalEventData = $event->getControllerResult();
-                $internalEventContext = ['request' => $event->getRequest()];
-                break;
-            case $event instanceof GetResponseEvent:
-                $internalEventContext = ['request' => $event->getRequest()];
-                break;
+        $event = new GetResponseForControllerResultEvent($kernel->reveal(), $request->reveal(), HttpKernelInterface::MASTER_REQUEST, ['data' => 'test']);
+
+        /** @var EventDispatcherInterface $symfonyEventDispatcher */
+        $symfonyEventDispatcher = $this->prophesize(EventDispatcherInterface::class);
+
+        foreach (self::INTERNAL_EVENTS_CONFIGURATION['kernel.view'] as $internalEventClass => $internalEventName) {
+            $internalEvent = new $internalEventClass(['data' => 'test'], ['request' => $event->getRequest()]);
+            $symfonyEventDispatcher->dispatch($internalEventName, $internalEvent)->shouldBeCalledOnce();
         }
 
-        foreach (self::INTERNAL_EVENTS_CONFIGURATION[$eventName] as $internalEventClass => $internalEventName) {
-            $internalEvent = new $internalEventClass($internalEventData, $internalEventContext);
-
-            $this->dispatcher->dispatch($internalEventName, $internalEvent);
-        }
+        $eventDispatcher = new EventDispatcher($symfonyEventDispatcher->reveal());
+        $eventDispatcher->dispatch($event, 'kernel.view');
     }
 }

@@ -13,6 +13,7 @@ declare(strict_types=1);
 
 namespace ApiPlatform\Core\EventListener;
 
+use ApiPlatform\Core\Event\EventInterface;
 use ApiPlatform\Core\Exception\RuntimeException;
 use ApiPlatform\Core\Serializer\ResourceList;
 use ApiPlatform\Core\Serializer\SerializerContextBuilderInterface;
@@ -43,11 +44,31 @@ final class SerializeListener
 
     /**
      * Serializes the data to the requested format.
+     *
+     * @deprecated The method ApiPlatform\Core\EventListener\SerializeListener::onKernelView() is deprecated since 2.5 and will be removed in 3.0.
      */
     public function onKernelView(GetResponseForControllerResultEvent $event)
     {
-        $controllerResult = $event->getControllerResult();
-        $request = $event->getRequest();
+        @trigger_error(sprintf('The method %s() is deprecated since 2.5 and will be removed in 3.0.', __METHOD__), E_USER_DEPRECATED);
+
+        $this->handleEvent($event);
+    }
+
+    /**
+     * Serializes the data to the requested format.
+     */
+    public function handleEvent(/* EventInterface */ $event)
+    {
+        if ($event instanceof EventInterface) {
+            $controllerResult = $event->getData();
+            $request = $event->getContext()['request'];
+        } elseif ($event instanceof GetResponseForControllerResultEvent) {
+            @trigger_error(sprintf('Passing an instance of "%s" as argument of "ApiPlatform\Core\EventListener\SerializeListener::handleEvent" is deprecated since 2.5 and will not be possible anymore in 3.0. Pass an instance of "%s" instead.', GetResponseForControllerResultEvent::class, EventInterface::class), E_USER_DEPRECATED);
+            $controllerResult = $event->getControllerResult();
+            $request = $event->getRequest();
+        } else {
+            return;
+        }
 
         if ($controllerResult instanceof Response || !$request->attributes->getBoolean('_api_respond', true)) {
             return;
@@ -63,7 +84,12 @@ final class SerializeListener
         $context = $this->serializerContextBuilder->createFromRequest($request, true, $attributes);
 
         if (isset($context['output']) && \array_key_exists('class', $context['output']) && null === $context['output']['class']) {
-            $event->setControllerResult('');
+
+            if ($event instanceof EventInterface) {
+                $event->setData('');
+            } elseif ($event instanceof GetResponseForControllerResultEvent) {
+                $event->setControllerResult('');
+            }
 
             return;
         }
@@ -79,7 +105,11 @@ final class SerializeListener
 
         $request->attributes->set('_api_normalization_context', $context);
 
-        $event->setControllerResult($this->serializer->serialize($controllerResult, $request->getRequestFormat(), $context));
+        if ($event instanceof EventInterface) {
+            $event->setData($this->serializer->serialize($controllerResult, $request->getRequestFormat(), $context));
+        } elseif ($event instanceof GetResponseForControllerResultEvent) {
+            $event->setControllerResult($this->serializer->serialize($controllerResult, $request->getRequestFormat(), $context));
+        }
 
         $request->attributes->set('_resources', $request->attributes->get('_resources', []) + (array) $resources);
         if (!\count($resourcesToPush)) {
@@ -100,10 +130,14 @@ final class SerializeListener
      *
      * @throws RuntimeException
      */
-    private function serializeRawData(GetResponseForControllerResultEvent $event, Request $request, $controllerResult)
+    private function serializeRawData(/* EventInterface */ $event, Request $request, $controllerResult)
     {
         if (\is_object($controllerResult)) {
-            $event->setControllerResult($this->serializer->serialize($controllerResult, $request->getRequestFormat(), $request->attributes->get('_api_normalization_context', [])));
+            if ($event instanceof EventInterface) {
+                $event->setData($this->serializer->serialize($controllerResult, $request->getRequestFormat(), $request->attributes->get('_api_normalization_context', [])));
+            } elseif ($event instanceof GetResponseForControllerResultEvent) {
+                $event->setControllerResult($this->serializer->serialize($controllerResult, $request->getRequestFormat(), $request->attributes->get('_api_normalization_context', [])));
+            }
 
             return;
         }
@@ -112,6 +146,10 @@ final class SerializeListener
             throw new RuntimeException(sprintf('The serializer instance must implements the "%s" interface.', EncoderInterface::class));
         }
 
-        $event->setControllerResult($this->serializer->encode($controllerResult, $request->getRequestFormat()));
+        if ($event instanceof EventInterface) {
+            $event->setData($this->serializer->encode($controllerResult, $request->getRequestFormat()));
+        } elseif ($event instanceof GetResponseForControllerResultEvent) {
+            $event->setControllerResult($this->serializer->encode($controllerResult, $request->getRequestFormat()));
+        }
     }
 }
