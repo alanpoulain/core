@@ -14,6 +14,7 @@ declare(strict_types=1);
 namespace ApiPlatform\Core\Tests\Hydra\EventListener;
 
 use ApiPlatform\Core\Api\UrlGeneratorInterface;
+use ApiPlatform\Core\Event\RespondEvent;
 use ApiPlatform\Core\Hydra\EventListener\AddLinkHeaderListener;
 use Fig\Link\GenericLinkProvider;
 use Fig\Link\Link;
@@ -31,6 +32,26 @@ class AddLinkHeaderListenerTest extends TestCase
      * @dataProvider provider
      */
     public function testAddLinkHeader(string $expected, Request $request)
+    {
+        $urlGenerator = $this->prophesize(UrlGeneratorInterface::class);
+        $urlGenerator->generate('api_doc', ['_format' => 'jsonld'], UrlGeneratorInterface::ABS_URL)->willReturn('http://example.com/docs')->shouldBeCalled();
+
+        $event = $this->prophesize(RespondEvent::class);
+        $event->getContext()->willReturn(['request' => $request])->shouldBeCalled();
+
+        $listener = new AddLinkHeaderListener($urlGenerator->reveal());
+        $listener->handleEvent($event->reveal());
+        $this->assertSame($expected, (new HttpHeaderSerializer())->serialize($request->attributes->get('_links')->getLinks()));
+    }
+
+    /**
+     * @dataProvider provider
+     *
+     * @group legacy
+     * @expectedDeprecation The method ApiPlatform\Core\Hydra\EventListener\AddLinkHeaderListener::onKernelResponse() is deprecated since 2.5 and will be removed in 3.0.
+     * @expectedDeprecation Passing an instance of "Symfony\Component\HttpKernel\Event\FilterResponseEvent" as argument of "ApiPlatform\Core\Hydra\EventListener\AddLinkHeaderListener::handleEvent" is deprecated since 2.5 and will not be possible anymore in 3.0. Pass an instance of "ApiPlatform\Core\Event\EventInterface" instead.
+     */
+    public function testLegacyAddLinkHeader(string $expected, Request $request)
     {
         $urlGenerator = $this->prophesize(UrlGeneratorInterface::class);
         $urlGenerator->generate('api_doc', ['_format' => 'jsonld'], UrlGeneratorInterface::ABS_URL)->willReturn('http://example.com/docs')->shouldBeCalled();
