@@ -21,18 +21,21 @@ use ApiPlatform\Core\Event\PostReadEvent;
 use ApiPlatform\Core\Event\PostRespondEvent;
 use ApiPlatform\Core\Event\PostSerializeEvent;
 use ApiPlatform\Core\Event\PostValidateEvent;
+use ApiPlatform\Core\Event\PostValidationExceptionEvent;
 use ApiPlatform\Core\Event\PostWriteEvent;
 use ApiPlatform\Core\Event\PreDeserializeEvent;
 use ApiPlatform\Core\Event\PreReadEvent;
 use ApiPlatform\Core\Event\PreRespondEvent;
 use ApiPlatform\Core\Event\PreSerializeEvent;
 use ApiPlatform\Core\Event\PreValidateEvent;
+use ApiPlatform\Core\Event\PreValidationExceptionEvent;
 use ApiPlatform\Core\Event\PreWriteEvent;
 use ApiPlatform\Core\Event\QueryParameterValidateEvent;
 use ApiPlatform\Core\Event\ReadEvent;
 use ApiPlatform\Core\Event\RespondEvent;
 use ApiPlatform\Core\Event\SerializeEvent;
 use ApiPlatform\Core\Event\ValidateEvent;
+use ApiPlatform\Core\Event\ValidationExceptionEvent;
 use ApiPlatform\Core\Event\WriteEvent;
 use ApiPlatform\Core\Events;
 use PHPUnit\Framework\TestCase;
@@ -40,6 +43,7 @@ use Symfony\Component\EventDispatcher\EventDispatcherInterface;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpKernel\Event\GetResponseEvent;
 use Symfony\Component\HttpKernel\Event\GetResponseForControllerResultEvent;
+use Symfony\Component\HttpKernel\Event\GetResponseForExceptionEvent;
 use Symfony\Component\HttpKernel\HttpKernelInterface;
 use Symfony\Component\HttpKernel\KernelEvents;
 
@@ -74,6 +78,11 @@ class EventDispatcherTest extends TestCase
             PreRespondEvent::class => Events::PRE_RESPOND,
             RespondEvent::class => Events::RESPOND,
             PostRespondEvent::class => Events::POST_RESPOND,
+        ],
+        KernelEvents::EXCEPTION => [
+            PreValidationExceptionEvent::class => Events::PRE_VALIDATE_EXCEPTION,
+            ValidationExceptionEvent::class => Events::VALIDATE_EXCEPTION,
+            PostValidationExceptionEvent::class => Events::POST_VALIDATE_EXCEPTION,
         ]
     ];
 
@@ -121,5 +130,24 @@ class EventDispatcherTest extends TestCase
 
         $eventDispatcher = new EventDispatcher($symfonyEventDispatcher->reveal());
         $eventDispatcher->dispatch($event, 'kernel.view');
+    }
+
+    public function testDispacthWithExceptionKernelEvent()
+    {
+        $kernel = $this->prophesize(HttpKernelInterface::class);
+        $request = $this->prophesize(Request::class);
+
+        $event = new GetResponseForExceptionEvent($kernel->reveal(), $request->reveal(), HttpKernelInterface::MASTER_REQUEST, new \Exception());
+
+        /** @var EventDispatcherInterface $symfonyEventDispatcher */
+        $symfonyEventDispatcher = $this->prophesize(EventDispatcherInterface::class);
+
+        foreach (self::INTERNAL_EVENTS_CONFIGURATION['kernel.exception'] as $internalEventClass => $internalEventName) {
+            $internalEvent = new $internalEventClass(null, ['request' => $event->getRequest(), 'exception' => $event->getException()]);
+            $symfonyEventDispatcher->dispatch($internalEventName, $internalEvent)->shouldBeCalledOnce();
+        }
+
+        $eventDispatcher = new EventDispatcher($symfonyEventDispatcher->reveal());
+        $eventDispatcher->dispatch($event, 'kernel.exception');
     }
 }

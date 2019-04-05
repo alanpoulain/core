@@ -20,18 +20,21 @@ use ApiPlatform\Core\Event\PostReadEvent;
 use ApiPlatform\Core\Event\PostRespondEvent;
 use ApiPlatform\Core\Event\PostSerializeEvent;
 use ApiPlatform\Core\Event\PostValidateEvent;
+use ApiPlatform\Core\Event\PostValidationExceptionEvent;
 use ApiPlatform\Core\Event\PostWriteEvent;
 use ApiPlatform\Core\Event\PreDeserializeEvent;
 use ApiPlatform\Core\Event\PreReadEvent;
 use ApiPlatform\Core\Event\PreRespondEvent;
 use ApiPlatform\Core\Event\PreSerializeEvent;
 use ApiPlatform\Core\Event\PreValidateEvent;
+use ApiPlatform\Core\Event\PreValidationExceptionEvent;
 use ApiPlatform\Core\Event\PreWriteEvent;
 use ApiPlatform\Core\Event\QueryParameterValidateEvent;
 use ApiPlatform\Core\Event\ReadEvent;
 use ApiPlatform\Core\Event\RespondEvent;
 use ApiPlatform\Core\Event\SerializeEvent;
 use ApiPlatform\Core\Event\ValidateEvent;
+use ApiPlatform\Core\Event\ValidationExceptionEvent;
 use ApiPlatform\Core\Event\WriteEvent;
 use ApiPlatform\Core\Events;
 use Symfony\Component\EventDispatcher\Event;
@@ -39,6 +42,7 @@ use Symfony\Component\EventDispatcher\EventDispatcherInterface;
 use Symfony\Component\EventDispatcher\EventSubscriberInterface;
 use Symfony\Component\HttpKernel\Event\GetResponseEvent;
 use Symfony\Component\HttpKernel\Event\GetResponseForControllerResultEvent;
+use Symfony\Component\HttpKernel\Event\GetResponseForExceptionEvent;
 use Symfony\Component\HttpKernel\KernelEvents;
 
 /**
@@ -77,6 +81,11 @@ final class EventDispatcher implements EventSubscriberInterface
             PreRespondEvent::class => Events::PRE_RESPOND,
             RespondEvent::class => Events::RESPOND,
             PostRespondEvent::class => Events::POST_RESPOND,
+        ],
+        KernelEvents::EXCEPTION => [
+            PreValidationExceptionEvent::class => Events::PRE_VALIDATE_EXCEPTION,
+            ValidationExceptionEvent::class => Events::VALIDATE_EXCEPTION,
+            PostValidationExceptionEvent::class => Events::POST_VALIDATE_EXCEPTION,
         ]
     ];
 
@@ -100,10 +109,14 @@ final class EventDispatcher implements EventSubscriberInterface
         $internalEventData = null;
         $internalEventContext = [];
 
+        // case order is important because of inheritance
         switch (true) {
             case $event instanceof GetResponseForControllerResultEvent:
                 $internalEventData = $event->getControllerResult();
                 $internalEventContext = ['request' => $event->getRequest()];
+                break;
+            case $event instanceof GetResponseForExceptionEvent:
+                $internalEventContext = ['request' => $event->getRequest(), 'exception' => $event->getException()];
                 break;
             case $event instanceof GetResponseEvent:
                 $internalEventContext = ['request' => $event->getRequest()];

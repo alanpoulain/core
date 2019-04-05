@@ -44,4 +44,8 @@ final class Events
     public const PRE_RESPOND = 'api_platform.pre_respond';
     public const RESPOND = 'api_platform.respond';
     public const POST_RESPOND = 'api_platform.post_respond';
+
+    public const PRE_VALIDATE_EXCEPTION = 'api_platform.pre_validate_exception';
+    public const VALIDATE_EXCEPTION = 'api_platform.validate_exception';
+    public const POST_VALIDATE_EXCEPTION = 'api_platform.post_validate_exception';
 }
