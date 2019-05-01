@@ -871,9 +871,9 @@ class ApiPlatformExtensionTest extends TestCase
         // https://github.com/symfony/symfony/pull/29944
         if (method_exists(ContainerBuilder::class, 'addRemovedBindingId')) {
             $containerBuilderProphecy->addRemovedBindingId(Argument::type('string'))->will(function () {});
-        } elseif (method_exists(ContainerBuilder::class, 'addRemovedBindingIds')) {
+        } elseif (method_exists(ContainerBuilder::class, 'removeBindings')) {
             // https://github.com/symfony/symfony/pull/31173
-            $containerBuilderProphecy->addRemovedBindingIds(Argument::type('string'))->will(function () {});
+            $containerBuilderProphecy->removeBindings(Argument::type('string'))->will(function () {});
         }
 
         return $containerBuilderProphecy;
