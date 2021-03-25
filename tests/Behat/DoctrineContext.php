@@ -163,6 +163,7 @@ use ApiPlatform\Core\Tests\Fixtures\TestBundle\Entity\UrlEncodedId;
 use ApiPlatform\Core\Tests\Fixtures\TestBundle\Entity\User;
 use ApiPlatform\Core\Tests\Fixtures\TestBundle\Entity\UuidIdentifierDummy;
 use ApiPlatform\Core\Tests\Fixtures\TestBundle\Entity\WithJsonDummy;
+use ApiPlatform\Core\Tests\Fixtures\TestBundle\Models\Foo as FooModel;
 use Behat\Behat\Context\Context;
 use Behat\Gherkin\Node\PyStringNode;
 use Doctrine\ODM\MongoDB\DocumentManager;
@@ -170,6 +171,11 @@ use Doctrine\ORM\EntityManagerInterface;
 use Doctrine\ORM\Tools\SchemaTool;
 use Doctrine\Persistence\ManagerRegistry;
 use Doctrine\Persistence\ObjectManager;
+use Illuminate\Database\Capsule\Manager;
+use Illuminate\Database\DatabaseManager;
+use Symfony\Bundle\FrameworkBundle\Console\Application;
+use Symfony\Component\Console\Tester\CommandTester;
+use Symfony\Component\HttpKernel\KernelInterface;
 use Symfony\Component\Security\Core\Encoder\UserPasswordEncoderInterface;
 
 /**
@@ -177,14 +183,17 @@ use Symfony\Component\Security\Core\Encoder\UserPasswordEncoderInterface;
  */
 final class DoctrineContext implements Context
 {
+    private $kernel;
+    private $application;
     /**
-     * @var ObjectManager
+     * @var ObjectManager|DatabaseManager
      */
     private $manager;
-    private $doctrine;
+    private $registry;
     private $passwordEncoder;
     private $schemaTool;
     private $schemaManager;
+    private $schemaBuilder;
 
     /**
      * Initializes context.
@@ -192,14 +201,19 @@ final class DoctrineContext implements Context
      * Every scenario gets its own context instance.
      * You can also pass arbitrary arguments to the
      * context constructor through behat.yml.
+     *
+     * @param ManagerRegistry|Manager $registry
      */
-    public function __construct(ManagerRegistry $doctrine, UserPasswordEncoderInterface $passwordEncoder)
+    public function __construct(KernelInterface $kernel, $registry, UserPasswordEncoderInterface $passwordEncoder)
     {
-        $this->doctrine = $doctrine;
+        $this->kernel = $kernel;
+        $this->registry = $registry;
         $this->passwordEncoder = $passwordEncoder;
-        $this->manager = $doctrine->getManager();
+        $manager = $registry instanceof Manager ? $registry->getDatabaseManager() : $registry->getManager();
+        $this->manager = $manager;
         $this->schemaTool = $this->manager instanceof EntityManagerInterface ? new SchemaTool($this->manager) : null;
         $this->schemaManager = $this->manager instanceof DocumentManager ? $this->manager->getSchemaManager() : null;
+        $this->schemaBuilder = $this->manager instanceof DatabaseManager ? $this->manager->getSchemaBuilder() : null;
     }
 
     /**
@@ -207,10 +221,10 @@ final class DoctrineContext implements Context
      */
     public function createDatabase()
     {
-        /** @var \Doctrine\ORM\Mapping\ClassMetadata[] $classes */
-        $classes = $this->manager->getMetadataFactory()->getAllMetadata();
-
         if ($this->isOrm()) {
+            /** @var \Doctrine\ORM\Mapping\ClassMetadata[] $classes */
+            $classes = $this->manager->getMetadataFactory()->getAllMetadata();
+
             $this->schemaTool->dropSchema($classes);
             $this->schemaTool->createSchema($classes);
         }
@@ -219,7 +233,15 @@ final class DoctrineContext implements Context
             $this->schemaManager->dropDatabases();
         }
 
-        $this->doctrine->getManager()->clear();
+        if ($this->isEloquent()) {
+            $this->registry->getConnection()->getSchemaBuilder()->dropAllTables();
+            (new CommandTester($this->getApplication()->find('eloquent:migrate:install')))->execute([]);
+            (new CommandTester($this->getApplication()->find('eloquent:migrate')))->execute([]);
+        }
+
+        if ($this->isDoctrine()) {
+            $this->registry->getManager()->clear();
+        }
     }
 
     /**
@@ -228,7 +250,7 @@ final class DoctrineContext implements Context
     public function theDqlShouldBeEqualTo(PyStringNode $dql)
     {
         /** @var EntityManager $manager */
-        $manager = $this->doctrine->getManager();
+        $manager = $this->registry->getManager();
 
         $actualDql = $manager::$dql;
 
@@ -298,13 +320,21 @@ final class DoctrineContext implements Context
 
         for ($i = 0; $i < $nb; ++$i) {
             $foo = $this->buildFoo();
-            $foo->setName($names[$i]);
-            $foo->setBar($bars[$i]);
-
-            $this->manager->persist($foo);
+            if ($this->isDoctrine()) {
+                $foo->setName($names[$i]);
+                $foo->setBar($bars[$i]);
+                $this->manager->persist($foo);
+            }
+            if ($foo instanceof FooModel) {
+                $foo->name = $names[$i];
+                $foo->bar = $bars[$i];
+                $foo->save();
+            }
         }
 
-        $this->manager->flush();
+        if ($this->isDoctrine()) {
+            $this->manager->flush();
+        }
     }
 
     /**
@@ -1278,7 +1308,7 @@ final class DoctrineContext implements Context
      */
     public function thePasswordForUserShouldBeHashed(string $password, string $user)
     {
-        $user = $this->doctrine->getRepository($this->isOrm() ? User::class : UserDocument::class)->find($user);
+        $user = $this->registry->getRepository($this->isOrm() ? User::class : UserDocument::class)->find($user);
         if (!$this->passwordEncoder->isPasswordValid($user, $password)) {
             throw new \Exception('User password mismatch');
         }
@@ -1863,6 +1893,16 @@ final class DoctrineContext implements Context
         return null !== $this->schemaManager;
     }
 
+    private function isDoctrine(): bool
+    {
+        return $this->isOrm() || $this->isOdm();
+    }
+
+    private function isEloquent(): bool
+    {
+        return null !== $this->schemaBuilder;
+    }
+
     /**
      * @return Answer|AnswerDocument
      */
@@ -2080,10 +2120,14 @@ final class DoctrineContext implements Context
     }
 
     /**
-     * @return Foo|FooDocument
+     * @return Foo|FooDocument|FooModel
      */
     private function buildFoo()
     {
+        if ($this->isEloquent()) {
+            return new FooModel();
+        }
+
         return $this->isOrm() ? new Foo() : new FooDocument();
     }
 
@@ -2349,5 +2393,16 @@ final class DoctrineContext implements Context
     private function buildWithJsonDummy()
     {
         return $this->isOrm() ? new WithJsonDummy() : new WithJsonDummyDocument();
+    }
+
+    public function getApplication(): Application
+    {
+        if (null !== $this->application) {
+            return $this->application;
+        }
+
+        $this->application = new Application($this->kernel);
+
+        return $this->application;
     }
 }
